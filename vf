@@ -178,3 +178,132 @@ plt.xlabel("tSNE1")
 plt.ylabel("tSNE2")
 plt.legend()
 plt.show()
+
+
+************
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import StandardScaler
+
+# ----------------------------------------------------------------------------
+# 1. Préparation et transformation des features
+# ----------------------------------------------------------------------------
+# On suppose que df_filtre est votre DataFrame existant avec les colonnes suivantes :
+#    - 'rf_struct_id'
+#    - 'pillars' (ex. "1Y", "10Y", "6M", "1D", "2W", etc.)
+#    - 'shock'
+#    - 'scenario_id' (optionnel)
+
+# Exemple de données fictives (à remplacer par votre DataFrame réel) :
+# data = {
+#     'rf_struct_id': ['RISK_1', 'RISK_1', 'RISK_2', 'RISK_2', 'RISK_3', 'RISK_3'],
+#     'pillars': ['1Y', '10Y', '6M', '2W', '1D', '10Y'],
+#     'shock': [0.015, 0.007, -0.003, 0.002, 0.0001, -0.0005],
+#     'scenario_id': ['A', 'A', 'B', 'B', 'A', 'C']
+# }
+# df_filtre = pd.DataFrame(data)
+
+# --- Conversion de 'pillars' en une variable numérique en mois
+def convert_pillar_to_months(pillar):
+    p = pillar.strip().upper()
+    # On va gérer les unités Années (Y), Mois (M), Semaines (W) et Jours (D)
+    if 'Y' in p:
+        # Exemple : "1Y" -> 1*12 = 12 mois, "10Y" -> 10*12 = 120 mois
+        return float(p.replace('Y','')) * 12
+    elif 'M' in p:
+        # Exemple : "6M" -> 6 mois
+        return float(p.replace('M',''))
+    elif 'W' in p:
+        # Conversion : 1 mois ≈ 4.33 semaines
+        return float(p.replace('W','')) / 4.33
+    elif 'D' in p:
+        # Conversion : 1 mois ≈ 30 jours
+        return float(p.replace('D','')) / 30.0
+    else:
+        return np.nan
+
+df_filtre['pillar_months'] = df_filtre['pillars'].apply(convert_pillar_to_months)
+
+# --- Conversion de 'scenario_id' en variable numérique (si la colonne existe)
+if 'scenario_id' in df_filtre.columns:
+    # Si la colonne n'est pas numérique, on la convertit en code numérique
+    if not np.issubdtype(df_filtre['scenario_id'].dtype, np.number):
+        df_filtre['scenario_id_num'] = df_filtre['scenario_id'].astype('category').cat.codes
+    else:
+        df_filtre['scenario_id_num'] = df_filtre['scenario_id']
+else:
+    # Si la colonne n'existe pas, on place une valeur neutre (ici, 0)
+    df_filtre['scenario_id_num'] = 0
+
+# --- Sélection des features pour le clustering
+features = ['shock', 'pillar_months', 'scenario_id_num']
+
+# On élimine les lignes avec des valeurs manquantes pour ces colonnes
+df_features = df_filtre.dropna(subset=features).copy()
+
+X = df_features[features].values
+
+# ----------------------------------------------------------------------------
+# 2. Standardisation des features
+# ----------------------------------------------------------------------------
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# ----------------------------------------------------------------------------
+# 3. Réalisation du clustering (ici, K-Means)
+# ----------------------------------------------------------------------------
+# Ajustez k_opt (nombre de clusters) selon vos courbes du coude et du silhouette
+k_opt = 3
+kmeans = KMeans(n_clusters=k_opt, random_state=0)
+cluster_labels = kmeans.fit_predict(X_scaled)
+df_features['cluster'] = cluster_labels
+
+# ----------------------------------------------------------------------------
+# 4. Réduction de dimension pour la visualisation
+# ----------------------------------------------------------------------------
+
+# Option A : Projection via PCA en 2D
+pca = PCA(n_components=2, random_state=0)
+X_pca = pca.fit_transform(X_scaled)
+df_features['PC1'] = X_pca[:, 0]
+df_features['PC2'] = X_pca[:, 1]
+
+plt.figure(figsize=(8, 6))
+for c in sorted(df_features['cluster'].unique()):
+    subset = df_features[df_features['cluster'] == c]
+    plt.scatter(subset['PC1'], subset['PC2'], label=f'Cluster {c}', s=50)
+plt.title("Visualisation des clusters avec PCA")
+plt.xlabel("PC1")
+plt.ylabel("PC2")
+plt.legend()
+plt.show()
+
+# Option B : Projection via t-SNE en 2D
+tsne = TSNE(n_components=2, random_state=0, perplexity=30)
+X_tsne = tsne.fit_transform(X_scaled)
+df_features['tSNE1'] = X_tsne[:, 0]
+df_features['tSNE2'] = X_tsne[:, 1]
+
+plt.figure(figsize=(8, 6))
+for c in sorted(df_features['cluster'].unique()):
+    subset = df_features[df_features['cluster'] == c]
+    plt.scatter(subset['tSNE1'], subset['tSNE2'], label=f'Cluster {c}', s=50)
+plt.title("Visualisation des clusters avec t-SNE")
+plt.xlabel("tSNE1")
+plt.ylabel("tSNE2")
+plt.legend()
+plt.show()
+
+# ----------------------------------------------------------------------------
+# 5. Création du DataFrame final
+# ----------------------------------------------------------------------------
+# On extrait uniquement les colonnes désirées : 'rf_struct_id', 'cluster' et 'shock'
+df_results = df_features[['rf_struct_id', 'cluster', 'shock']].copy()
+
+# Affichage du résultat (les 5 premières lignes, par exemple)
+print(df_results.head())
