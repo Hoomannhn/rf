@@ -279,3 +279,13 @@ Un cluster peut correspondre à des chocs très volatils (std_shock élevé),
 Un autre à des chocs essentiellement négatifs (mean_shock négatif),
 
 Un autre à des chocs très asymétriques (skew_shock élevé), etc.
+
+************
+# Supposons que df_agg est votre DataFrame final,
+# avec les indices correspondant aux rf_struct_id et une colonne 'cluster'
+clusters = df_agg.groupby('cluster').apply(lambda x: x.index.tolist())
+
+# Affichage des rf_struct_id par cluster
+for cluster_id, rf_struct_ids in clusters.items():
+    print(f"Cluster {cluster_id} : {rf_struct_ids}")
+
