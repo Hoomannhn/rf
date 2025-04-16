@@ -253,3 +253,29 @@ Clustérisez avec l’algorithme de votre choix (K-Means, Hiérarchique, DBSCAN�
 Interprétez la répartition des rf_struct_id dans les clusters pour déterminer lesquels sont associés à des chocs vraiment significatifs.
 
 Ainsi, vous évitez la création d’un large pivot avec des colonnes manquantes, tout en étant capable de différencier les rf_struct_id selon la “forme” générale de leurs chocs.
+
+****************
+
+Les clusters que vous voyez à la fin sont les groupes de rf_struct_id que l’algorithme K-Means a formés en fonction de leurs profils de chocs (ici résumés par les statistiques mean_shock, std_shock, etc.). Autrement dit :
+
+Le clustering a « regroupé » ensemble les rf_struct_id dont la distribution de chocs (moyenne, min, max, écart-type…) se ressemble.
+
+Chaque ligne dans votre tableau final (cluster 0, cluster 1, etc.) donne la moyenne de ces statistiques pour l’ensemble des rf_struct_id classés dans ce cluster.
+
+Concrètement, par exemple :
+
+Cluster 0 (première ligne) rassemble des rf_struct_id qui, en moyenne, ont un mean_shock très négatif (-2.777296e+02 dans votre capture) et un écart-type (std_shock) potentiellement élevé, un min_shock très bas, etc.
+
+Cluster 1 (seconde ligne) rassemble plutôt des rf_struct_id dont les chocs sont globalement positifs (mean_shock autour de 2.23279e+02), avec une autre configuration de std_shock, min_shock, max_shock, etc.
+
+Ainsi, chaque cluster est un type (ou profil) de distribution de chocs. Vous pouvez alors :
+
+Identifier les rf_struct_id qui se trouvent dans chaque cluster (en regardant la colonne df_agg['cluster']).
+
+Interpréter la signification de ces clusters pour votre cas métier :
+
+Un cluster peut correspondre à des chocs très volatils (std_shock élevé),
+
+Un autre à des chocs essentiellement négatifs (mean_shock négatif),
+
+Un autre à des chocs très asymétriques (skew_shock élevé), etc.
