@@ -164,6 +164,68 @@ df_agg['cluster'] = labels
 print(df_agg.head())
 Remarque : choisissez n_clusters soit par la méthode du coude, soit par un score (ex. silhouette_score).
 
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler
+
+# Supposons que vous avez déjà :
+# - un DataFrame df_features où chaque ligne représente un rf_struct_id
+#   et les colonnes représentent les features agrégées (mean_shock, std_shock, etc.)
+# - on l'appelle df_features pour l'exemple
+
+# 1) Standardisation
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(df_features)
+
+# 2) Méthode du coude (Elbow Method)
+distortions = []
+K_range = range(2, 10)
+for k in K_range:
+    kmeans = KMeans(n_clusters=k, random_state=0)
+    kmeans.fit(X_scaled)
+    distortions.append(kmeans.inertia_)
+
+plt.plot(K_range, distortions, 'bx-')
+plt.xlabel('k (nombre de clusters)')
+plt.ylabel('Distortion (Inertia)')
+plt.title("Méthode du coude")
+plt.show()
+
+# --> Interprétez le "coude" visuel pour choisir un k
+#    Exemple : on remarque un coude autour de 3 ou 4.
+
+# 3) Silhouette Score
+sil_scores = []
+for k in K_range:
+    kmeans = KMeans(n_clusters=k, random_state=0)
+    labels = kmeans.fit_predict(X_scaled)
+    sil = silhouette_score(X_scaled, labels)
+    sil_scores.append(sil)
+
+plt.plot(K_range, sil_scores, 'bx-')
+plt.xlabel('k (nombre de clusters)')
+plt.ylabel('Silhouette Score')
+plt.title("Score de silhouette en fonction de k")
+plt.show()
+
+# --> Choisissez k qui maximise le silhouette score
+#    (ou un compromis : un k raisonnable avec un score correct).
+
+# Exemple : supposons k=4 suite à l'analyse ci-dessus
+k_opt = 4
+kmeans_final = KMeans(n_clusters=k_opt, random_state=0)
+labels_final = kmeans_final.fit_predict(X_scaled)
+
+# 4) Ajouter les labels de cluster à votre DataFrame
+df_features['cluster'] = labels_final
+
+# 5) Visualiser / interpréter
+print(df_features.groupby('cluster').mean())  # Par exemple
+
+
 Étape 5 : Interpréter les résultats
 Observer la répartition des clusters (taille, distribution).
 
