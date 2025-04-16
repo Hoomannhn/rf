@@ -307,3 +307,15 @@ df_results = df_features[['rf_struct_id', 'cluster', 'shock']].copy()
 
 # Affichage du résultat (les 5 premières lignes, par exemple)
 print(df_results.head())
+
+************
+
+# Pour calculer les statistiques sur "shock" par cluster dans df_results
+stats_clusters = df_results.groupby('cluster')['shock'].agg(
+    count='count',
+    min='min',
+    max='max',
+    mean='mean'
+).reset_index()
+
+print(stats_clusters)
