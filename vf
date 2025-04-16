@@ -1,23 +1,3 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
-from sklearn.preprocessing import StandardScaler
-
-# --- 1. Chargement et préparation des données ---
-# On suppose que df_filtre est votre DataFrame d'origine avec les colonnes :
-# 'rf_struct_id', 'pillars' et 'shock'
-
-# Pour l'exemple, df_filtre doit déjà être défini
-# Exemple de création fictive (à remplacer par votre DataFrame réel) :
-# data = {
-#     'rf_struct_id': ['RISK_1', 'RISK_1', 'RISK_2', 'RISK_2', 'RISK_3', 'RISK_3'],
-#     'pillars': ['1Y', '10Y', '1Y', '10Y', '1Y', '10Y'],
-#     'shock': [0.015, 0.007, -0.003, 0.002, 0.0001, -0.0005]
-# }
-# df_filtre = pd.DataFrame(data)
-
 # --- 2. Clustering sur les valeurs brutes de 'shock' ---
 
 # a) Extraire et standardiser les valeurs de 'shock'
@@ -59,10 +39,6 @@ kmeans_final = KMeans(n_clusters=k_opt, random_state=0)
 df_filtre['shock_cluster'] = kmeans_final.fit_predict(X_scaled)
 
 # --- 3. Analyser la répartition des clusters de chocs pour chaque rf_struct_id ---
-
-# Pour chaque rf_struct_id, obtenir le nombre de chocs dans chaque cluster
-# Cette étape permet de voir, par exemple, si un rf_struct_id a surtout des chocs forts (cluster 2)
-# ou majoritairement des chocs faibles (cluster 0).
 clusters_par_struct = df_filtre.groupby('rf_struct_id')['shock_cluster'] \
     .agg(lambda x: x.value_counts().to_dict())
 
@@ -92,3 +68,104 @@ df_results = df_filtre[['rf_struct_id', 'shock_cluster', 'shock']].rename(column
 
 # Afficher le résultat
 print(df_results.head())
+
+**********
+Voici un exemple complet qui réalise du clustering sur plusieurs features (par exemple, shock, une version numérique de pillars et un identifiant de scénario), puis qui projette ces données multi-dimensionnelles en 2D via la PCA et le t-SNE pour visualiser les clusters par couleur.
+
+Dans cet exemple, on part du principe que votre DataFrame (ici appelé df_filtre) contient les colonnes suivantes :
+
+rf_struct_id (identifiant)
+
+pillars (ex. "1Y", "10Y", "6M", …)
+
+shock (valeur numérique)
+
+scenario_id (catégoriel ou numérique, optionnel)
+
+Si vous n'avez pas la colonne scenario_id, le script utilisera seulement shock et pillars.
+
+
+
+def convert_pillar_to_months(pillar):
+    p = pillar.strip().upper()
+    if 'Y' in p:
+        # Ex : "1Y" -> 12, "10Y" -> 120
+        return float(p.replace('Y', '')) * 12
+    elif 'M' in p:
+        # Ex : "6M" -> 6
+        return float(p.replace('M',''))
+    else:
+        return np.nan
+
+df_filtre['pillar_months'] = df_filtre['pillars'].apply(convert_pillar_to_months)
+
+# --- Conversion de 'scenario_id' en variable numérique (si présente)
+if 'scenario_id' in df_filtre.columns:
+    # Si ce n'est pas déjà numérique, on convertit en code numérique
+    if not np.issubdtype(df_filtre['scenario_id'].dtype, np.number):
+        df_filtre['scenario_id_num'] = df_filtre['scenario_id'].astype('category').cat.codes
+    else:
+        df_filtre['scenario_id_num'] = df_filtre['scenario_id']
+else:
+    # Si la colonne n'existe pas, on n'utilisera que 'shock' et 'pillar_months'
+    df_filtre['scenario_id_num'] = 0  # Remplit d'une valeur neutre
+
+# --- Sélection des features pour le clustering
+features = ['shock', 'pillar_months', 'scenario_id_num']
+
+# On élimine les lignes avec des valeurs manquantes dans ces features
+df_features = df_filtre.dropna(subset=features).copy()
+
+X = df_features[features].values
+
+# ----------------------------------------------------------------------------
+# 2. Standardisation des features
+# ----------------------------------------------------------------------------
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# ----------------------------------------------------------------------------
+# 3. Réalisation du clustering (ici K-Means)
+# ----------------------------------------------------------------------------
+# Choisissez le nombre de clusters (par exemple, k = 3, à ajuster selon vos analyses)
+k_opt = 3
+kmeans = KMeans(n_clusters=k_opt, random_state=0)
+cluster_labels = kmeans.fit_predict(X_scaled)
+df_features['cluster'] = cluster_labels
+
+# ----------------------------------------------------------------------------
+# 4. Réduction de dimension pour la visualisation
+# ----------------------------------------------------------------------------
+
+# Option A : Utilisation de la PCA
+pca = PCA(n_components=2, random_state=0)
+X_pca = pca.fit_transform(X_scaled)
+df_features['PC1'] = X_pca[:, 0]
+df_features['PC2'] = X_pca[:, 1]
+
+plt.figure(figsize=(8, 6))
+for c in sorted(df_features['cluster'].unique()):
+    subset = df_features[df_features['cluster'] == c]
+    plt.scatter(subset['PC1'], subset['PC2'], label=f'Cluster {c}', s=50)
+plt.title("Clusters visualisés avec PCA")
+plt.xlabel("PC1")
+plt.ylabel("PC2")
+plt.legend()
+plt.show()
+
+# Option B : Utilisation du t-SNE
+# Attention : t-SNE est stochastique et peut demander quelques ajustements
+tsne = TSNE(n_components=2, random_state=0, perplexity=30)
+X_tsne = tsne.fit_transform(X_scaled)
+df_features['tSNE1'] = X_tsne[:, 0]
+df_features['tSNE2'] = X_tsne[:, 1]
+
+plt.figure(figsize=(8, 6))
+for c in sorted(df_features['cluster'].unique()):
+    subset = df_features[df_features['cluster'] == c]
+    plt.scatter(subset['tSNE1'], subset['tSNE2'], label=f'Cluster {c}', s=50)
+plt.title("Clusters visualisés avec t-SNE")
+plt.xlabel("tSNE1")
+plt.ylabel("tSNE2")
+plt.legend()
+plt.show()
