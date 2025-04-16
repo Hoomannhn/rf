@@ -1,3 +1,12 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import StandardScaler
+
+
 # --- 2. Clustering sur les valeurs brutes de 'shock' ---
 
 # a) Extraire et standardiser les valeurs de 'shock'
