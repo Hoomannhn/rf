@@ -1,0 +1,85 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler
+
+# --- 1. Chargement et préparation des données ---
+# On suppose que df_filtre est votre DataFrame d'origine avec les colonnes :
+# 'rf_struct_id', 'pillars' et 'shock'
+
+# Pour l'exemple, df_filtre doit déjà être défini
+# Exemple de création fictive (à remplacer par votre DataFrame réel) :
+# data = {
+#     'rf_struct_id': ['RISK_1', 'RISK_1', 'RISK_2', 'RISK_2', 'RISK_3', 'RISK_3'],
+#     'pillars': ['1Y', '10Y', '1Y', '10Y', '1Y', '10Y'],
+#     'shock': [0.015, 0.007, -0.003, 0.002, 0.0001, -0.0005]
+# }
+# df_filtre = pd.DataFrame(data)
+
+# --- 2. Clustering sur les valeurs brutes de 'shock' ---
+
+# a) Extraire et standardiser les valeurs de 'shock'
+X = df_filtre[['shock']].values  # On obtient un tableau 2D, nécessaire pour KMeans
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# b) Choix du nombre de clusters avec la méthode du coude et le silhouette score
+distortions = []
+sil_scores = []
+K_range = range(2, 7)  # on teste de 2 à 6 clusters
+for k in K_range:
+    kmeans = KMeans(n_clusters=k, random_state=0)
+    kmeans.fit(X_scaled)
+    labels = kmeans.labels_
+    distortions.append(kmeans.inertia_)
+    sil = silhouette_score(X_scaled, labels)
+    sil_scores.append(sil)
+
+# Tracé de la méthode du coude
+plt.figure()
+plt.plot(K_range, distortions, marker='o')
+plt.xlabel('Nombre de clusters k')
+plt.ylabel('Distortion (Inertie)')
+plt.title("Méthode du coude sur les valeurs de 'shock'")
+plt.show()
+
+# Tracé du silhouette score
+plt.figure()
+plt.plot(K_range, sil_scores, marker='o')
+plt.xlabel('Nombre de clusters k')
+plt.ylabel('Silhouette Score')
+plt.title("Silhouette Score sur les valeurs de 'shock'")
+plt.show()
+
+# Après observation des graphiques, choisissez le nombre de clusters (ici, par exemple, k=3)
+k_opt = 3
+kmeans_final = KMeans(n_clusters=k_opt, random_state=0)
+df_filtre['shock_cluster'] = kmeans_final.fit_predict(X_scaled)
+
+# --- 3. Analyser la répartition des clusters de chocs pour chaque rf_struct_id ---
+
+# Pour chaque rf_struct_id, obtenir le nombre de chocs dans chaque cluster
+# Cette étape permet de voir, par exemple, si un rf_struct_id a surtout des chocs forts (cluster 2)
+# ou majoritairement des chocs faibles (cluster 0).
+clusters_par_struct = df_filtre.groupby('rf_struct_id')['shock_cluster'] \
+    .agg(lambda x: x.value_counts().to_dict())
+
+print("Répartition des clusters de chocs par rf_struct_id :")
+print(clusters_par_struct)
+
+# --- Optionnel : Visualisation ---
+# Vous pouvez aussi visualiser la distribution des 'shock' colorée par leur label de cluster
+plt.figure()
+for cluster in range(k_opt):
+    plt.scatter(
+        df_filtre.loc[df_filtre['shock_cluster'] == cluster, 'rf_struct_id'],
+        df_filtre.loc[df_filtre['shock_cluster'] == cluster, 'shock'],
+        label=f'Cluster {cluster}'
+    )
+plt.xlabel('rf_struct_id')
+plt.ylabel('shock')
+plt.title("Distribution des chocs par rf_struct_id et clusters")
+plt.legend()
+plt.show()
