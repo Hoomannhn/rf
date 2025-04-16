@@ -83,3 +83,12 @@ plt.ylabel('shock')
 plt.title("Distribution des chocs par rf_struct_id et clusters")
 plt.legend()
 plt.show()
+
+
+********
+
+# Création du DataFrame résultat
+df_results = df_filtre[['rf_struct_id', 'shock_cluster', 'shock']].rename(columns={'shock_cluster': 'cluster'})
+
+# Afficher le résultat
+print(df_results.head())
