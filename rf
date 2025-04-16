@@ -1,0 +1,193 @@
+Voici une approche par statistiques agrégées qui permet de détecter et de regrouper les rf_struct_id présentant des chocs « intéressants », sans effectuer de pivot (donc sans créer explicitement un grand tableau rf_struct_id x pillars). L’idée est de résumer les chocs de chaque rf_struct_id par un vecteur de statistiques, puis de faire un clustering sur ces vecteurs.
+
+Étape 1 : Filtrer les chocs non pertinents (optionnel)
+On commence par éliminer les rf_struct_id qui n’ont que des chocs trop faibles (proches de zéro), si cela fait sens pour votre cas d’usage. Ex. :
+
+python
+Copier
+Modifier
+import pandas as pd
+import numpy as np
+
+# Supposons que votre DataFrame initial s'appelle df, avec colonnes :
+#  ['rf_struct_id', 'pillars', 'shock', ...]
+
+# Calcul des min et max par rf_struct_id
+group_stats = df.groupby('rf_struct_id')['shock'].agg(['min', 'max'])
+
+# Seuil pour juger qu'un choc est "significatif"
+SEUIL = 0.001
+
+# On retient les rf_struct_id dont le min est < -SEUIL
+# ou le max est > SEUIL
+rf_struct_id_interessants = group_stats[
+    (group_stats['min'] < -SEUIL) | (group_stats['max'] > SEUIL)
+].index
+
+# DataFrame filtré
+df_filtre = df[df['rf_struct_id'].isin(rf_struct_id_interessants)]
+Ici, on n’a pas fait de pivot.
+
+Cette étape vous permet de vous concentrer sur les structures de risque qui présentent des variations de chocs potentiellement importantes.
+
+Étape 2 : Construire un vecteur de caractéristiques sans pivot
+A. Agrégations “globales”
+Une façon simple de procéder consiste à ignorer la notion de pillar et à décrire les chocs d’un rf_struct_id par quelques statistiques globales :
+
+Moyenne (mean)
+
+Écart-type (std)
+
+Minimum / Maximum
+
+Skewness / Kurtosis (facultatif, si vous voulez prendre en compte la forme de la distribution)
+
+Pourcentage de chocs > 0 ou < 0, etc.
+
+Exemple :
+
+python
+Copier
+Modifier
+# On agrège simplement toutes les lignes de df_filtre par rf_struct_id
+df_agg = df_filtre.groupby('rf_struct_id')['shock'].agg(
+    mean_shock='mean',
+    std_shock='std',
+    min_shock='min',
+    max_shock='max',
+    skew_shock=lambda x: x.skew(),
+    kurt_shock=lambda x: x.kurt()
+).fillna(0)
+
+# df_agg est un DataFrame où :
+#   - l'index = rf_struct_id
+#   - les colonnes = statistiques agrégées
+#
+# Exemple d'aperçu de df_agg :
+#   mean_shock  std_shock   min_shock   max_shock   skew_shock  kurt_shock
+#RISK_01   0.0012     0.0035      -0.0042     0.0070     0.23        1.12
+#RISK_02  ...
+Ici, pas de pivot. On se contente de créer un vecteur de quelques stats par rf_struct_id.
+
+Avantages :
+
+Pas de problème de NaN comme dans le pivot (où certains rf_struct_id n’ont pas telle ou telle maturité).
+
+On obtient un petit tableau très compact.
+
+On peut rapidement faire un clustering dessus.
+
+Inconvénient :
+
+On perd la granularité par pillar. Deux rf_struct_id qui ont des distributions globalement similaires, mais réparties différemment selon les maturités, risquent de se ressembler dans ce type de features.
+
+Remarque : Si la répartition par pillar est importante pour votre analyse, voyez l’approche B ci-dessous.
+
+B. Agrégations “par grande catégorie de pillars” (optionnel)
+Si vous tenez à capturer un peu de la structure par pillars (par exemple, “court terme”, “moyen terme”, “long terme”) sans faire un pivot complet, vous pouvez :
+
+Définir des catégories de pillars (par exemple Short = [1M, 3M, 6M], Medium = [1Y, 2Y, 3Y], Long = [5Y, 10Y, 30Y], etc.).
+
+Pour chaque rf_struct_id, calculer les mêmes statistiques agrégées, mais par catégorie.
+
+Concrètement :
+
+python
+Copier
+Modifier
+def categorize_pillar(pillar):
+    # Exemple de règle simplifiée :
+    # vous adaptez selon votre structure
+    if 'M' in pillar or 'm' in pillar:  # ex: '1M', '3M', ...
+        return 'Short'
+    elif 'Y' in pillar:
+        year = int(pillar.replace('Y',''))  # ex: '1Y' -> 1, '10Y' -> 10
+        if year < 5:
+            return 'Medium'
+        else:
+            return 'Long'
+    else:
+        return 'Autres'
+
+df_filtre['pillar_cat'] = df_filtre['pillars'].apply(categorize_pillar)
+
+# On fait un groupby multi-niveau (rf_struct_id, pillar_cat)
+df_cat = df_filtre.groupby(['rf_struct_id','pillar_cat'])['shock'].agg(
+    mean_shock='mean',
+    std_shock='std',
+    min_shock='min',
+    max_shock='max'
+).fillna(0)
+
+# df_cat est un DataFrame multi-index.
+# On peut ensuite "aplatir" ce multi-index avec unstack,
+# mais ça ressemble à un pivot. Cependant, on aura beaucoup
+# moins de colonnes que si on pivotait sur toutes les maturités.
+
+df_cat_flat = df_cat.unstack('pillar_cat', fill_value=0)
+
+# df_cat_flat aura des colonnes comme :
+#   mean_shock_Short, mean_shock_Medium, mean_shock_Long, ...
+#   std_shock_Short, ...
+# etc.
+Même si on fait un unstack, on a beaucoup moins de NaN que dans un pivot “classique” sur toutes les maturités, puisqu’on a fusionné des pillars en quelques catégories plus globales.
+
+Ensuite, on peut faire du clustering sur df_cat_flat. C’est un compromis pour prendre en compte la structure par maturité, sans se retrouver avec une quantité massive de colonnes vides (NaN).
+
+Étape 3 : Standardisation (optionnelle)
+Une fois votre tableau de statistiques obtenu (que ce soit df_agg ou df_cat_flat), il est souvent utile de standardiser avant d’appliquer un algorithme de clustering :
+
+python
+Copier
+Modifier
+from sklearn.preprocessing import StandardScaler
+
+# Supposons que vous gardiez la version simple df_agg
+X = df_agg.values  # ou df_cat_flat.values si vous avez fait la catégorisation
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+Étape 4 : Clustering (K-Means, Hiérarchique, DBSCAN, …)
+Enfin, vous appliquez votre algorithme de clustering préféré. Exemple avec K-Means :
+
+python
+Copier
+Modifier
+from sklearn.cluster import KMeans
+
+kmeans = KMeans(n_clusters=4, random_state=0)
+labels = kmeans.fit_predict(X_scaled)
+
+# Vous pouvez rattacher ces labels à votre DataFrame de stats
+df_agg['cluster'] = labels
+
+# Visualiser
+print(df_agg.head())
+Remarque : choisissez n_clusters soit par la méthode du coude, soit par un score (ex. silhouette_score).
+
+Étape 5 : Interpréter les résultats
+Observer la répartition des clusters (taille, distribution).
+
+Analyser les statistiques moyennes dans chaque cluster :
+
+Par exemple : df_agg.groupby('cluster').mean()
+
+Cela permet de comprendre les “profils” de chocs : un cluster peut avoir des chocs généralement forts (std_shock élevée, max_shock élevé), un autre plutôt négatifs, etc.
+
+Décider de quel cluster est “intéressant” selon vos critères (ex. si vous cherchez de gros chocs à long terme, etc.).
+
+Récapitulatif
+(Optionnel) Filtrez les rf_struct_id dont les chocs sont trop faibles pour être intéressants.
+
+Créez un vecteur de caractéristiques sans pivot :
+
+Approche A : statistiques globales (mean, std, min, max, skew, kurt, etc.).
+
+Approche B : si nécessaire, agrégez par grandes catégories de maturité pour garder un aperçu de la structure par pillars (mais sans faire un pivot complet sur chaque maturité).
+
+Standardisez éventuellement vos features.
+
+Clustérisez avec l’algorithme de votre choix (K-Means, Hiérarchique, DBSCAN…).
+
+Interprétez la répartition des rf_struct_id dans les clusters pour déterminer lesquels sont associés à des chocs vraiment significatifs.
+
+Ainsi, vous évitez la création d’un large pivot avec des colonnes manquantes, tout en étant capable de différencier les rf_struct_id selon la “forme” générale de leurs chocs.
