@@ -98,7 +98,7 @@ print("\nAnomalies (changement de cluster) :")
 print(anomalies)
 
 # ****************************************************************************
-
+# a agrégé le résultat par rf_struct_id (mode), ce qui ne vous rend qu’un seul enregistrement par structure de risque (et vous aviez 750 rf_struct_id uniques).
 import pandas as pd
 import numpy as np
 import re
