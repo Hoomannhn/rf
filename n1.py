@@ -189,3 +189,11 @@ print(df_cmp[df_cmp['anomaly']].head())
 # Et pour avoir la liste complète des anomalies :
 anomalies = df_cmp[df_cmp['anomaly']].copy()
 
+
+"""
+Générer les labels de cluster pour chaque ligne dans vos deux DataFrames.
+
+Faire un merge ligne-à-ligne (par exemple sur rf_struct_id + pillars) pour obtenir un DataFrame de comparaison de la même taille que votre jeu initial.
+
+Comparer cluster_old vs. cluster_new sur chaque ligne.
+"""
