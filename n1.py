@@ -197,3 +197,9 @@ Faire un merge ligne-à-ligne (par exemple sur rf_struct_id + pillars) pour obte
 
 Comparer cluster_old vs. cluster_new sur chaque ligne.
 """
+
+# ////////////////////////////////////////////////////////////////////////////
+"""
+Le chiffre astronomique vient du fait qu’en fusionnant sur ['rf_struct_id','pillars'] vous avez en réalité un produit cartésien : pour chaque combinaison rf_struct_id+pillars qui apparaît n fois dans df0 et m fois dans dfn1, vous créez n×m lignes. D’où vos 10¹¹ lignes…
+"""
+
