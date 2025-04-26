@@ -96,3 +96,96 @@ print(df_compare)
 anomalies = df_compare[df_compare['anomaly']]
 print("\nAnomalies (changement de cluster) :")
 print(anomalies)
+
+# ****************************************************************************
+
+import pandas as pd
+import numpy as np
+import re
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+
+# ----------------------------------------------------------------------------
+# 1. Charger vos deux jeux de données
+#    - df_filtre : dataset t0 (4 millions de lignes)
+#    - dfn1      : dataset t+1 (4 millions de lignes, mêmes clés)
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# 2. Conversion de 'pillars' en variable numérique (mois)
+# ----------------------------------------------------------------------------
+def convert_pillar_to_months(pillar):
+    p = str(pillar).strip().upper()
+    m = re.findall(r"\d+\.?\d*", p)
+    if not m:
+        return np.nan
+    v = float(m[0])
+    if 'Y' in p:
+        return v * 12
+    elif 'M' in p and 'Y' not in p:
+        return v
+    elif 'W' in p:
+        return v / 4.33
+    elif 'D' in p:
+        return v / 30.0
+    else:
+        return np.nan
+
+for df in (df_filtre, dfn1):
+    df['pillar_months'] = df['pillars'].apply(convert_pillar_to_months)
+
+# ----------------------------------------------------------------------------
+# 3. Préparation des features
+# ----------------------------------------------------------------------------
+features = ['shock', 'pillar_months', 'scenario_id']  # scenario_id déjà numérique
+df0 = df_filtre.dropna(subset=features).copy()
+df1 = dfn1.dropna(subset=features).copy()
+
+# ----------------------------------------------------------------------------
+# 4. Standardisation sur le jeu t0
+# ----------------------------------------------------------------------------
+scaler = StandardScaler()
+X0 = scaler.fit_transform(df0[features].values)
+
+# ----------------------------------------------------------------------------
+# 5. Entraînement du K-Means sur t0
+# ----------------------------------------------------------------------------
+k_opt = 3
+kmeans = KMeans(n_clusters=k_opt, random_state=0)
+df0['cluster_old'] = kmeans.fit_predict(X0)
+
+# ----------------------------------------------------------------------------
+# 6. Application du même scaler + modèle sur t+1
+# ----------------------------------------------------------------------------
+X1 = scaler.transform(df1[features].values)
+df1['cluster_new'] = kmeans.predict(X1)
+
+# ----------------------------------------------------------------------------
+# 7. Merge ligne-à-ligne pour comparer
+#    On part du principe que (rf_struct_id, pillars) sont identiques
+#    entre df0 et df1 pour chaque ligne.
+# ----------------------------------------------------------------------------
+df_cmp = pd.merge(
+    df0[['rf_struct_id','pillars','cluster_old']],
+    df1[['rf_struct_id','pillars','cluster_new']],
+    how='inner',
+    on=['rf_struct_id','pillars']
+)
+
+# ----------------------------------------------------------------------------
+# 8. Marquer les anomalies
+# ----------------------------------------------------------------------------
+df_cmp['anomaly'] = df_cmp['cluster_old'] != df_cmp['cluster_new']
+
+# ----------------------------------------------------------------------------
+# 9. Résultats
+# ----------------------------------------------------------------------------
+print("Total lignes comparées :", len(df_cmp))
+print("Total anomalies détectées :", df_cmp['anomaly'].sum())
+
+# Si vous voulez voir un échantillon :
+print(df_cmp[df_cmp['anomaly']].head())
+
+# Et pour avoir la liste complète des anomalies :
+anomalies = df_cmp[df_cmp['anomaly']].copy()
+
