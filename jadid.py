@@ -181,3 +181,89 @@ print(df_pivot.head())
 anomalies = df_pivot[df_pivot['anomaly']]
 print(f"\nNombre de rf_struct_id anomalies : {len(anomalies)}")
 print(anomalies)
+
+# ///////////////////////////////
+
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+
+# ----------------------------------------------------------------------------
+# 1. Charger vos deux jeux de données existants :
+#    - df_filtre : dataset t0, contenant ['rf_struct_id', 'pillars', 'shock', 'as_of_date', ...]
+#    - dfn1      : dataset t+1, mêmes colonnes
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# 2. Concaténer les deux jeux en un seul DataFrame
+# ----------------------------------------------------------------------------
+df_all = pd.concat([df_filtre, dfn1], ignore_index=True)
+
+# ----------------------------------------------------------------------------
+# 3. Calculer les features agrégées par (rf_struct_id, as_of_date)
+# ----------------------------------------------------------------------------
+df_feats = (
+    df_all
+    .groupby(['rf_struct_id', 'as_of_date'])['shock']
+    .agg(
+        max_shock='max',
+        min_shock='min',
+        median_shock='median'
+    )
+    .reset_index()
+)
+
+# ----------------------------------------------------------------------------
+# 4. Préparation des données pour le clustering
+# ----------------------------------------------------------------------------
+features = ['max_shock', 'min_shock', 'median_shock']
+X = df_feats[features].values
+
+# ----------------------------------------------------------------------------
+# 5. Standardisation
+# ----------------------------------------------------------------------------
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# ----------------------------------------------------------------------------
+# 6. Clustering K-Means sur l’ensemble des observations
+# ----------------------------------------------------------------------------
+k_opt = 3  # ajustez selon vos analyses
+kmeans = KMeans(n_clusters=k_opt, random_state=0)
+df_feats['cluster'] = kmeans.fit_predict(X_scaled)
+
+# ----------------------------------------------------------------------------
+# 7. Pivot pour obtenir un cluster par date en colonne
+# ----------------------------------------------------------------------------
+df_pivot = df_feats.pivot(index='rf_struct_id', columns='as_of_date', values='cluster')
+
+# ----------------------------------------------------------------------------
+# 8. Identifier les deux dates : t0 et t+1
+# ----------------------------------------------------------------------------
+dates = sorted(df_pivot.columns, key=lambda d: pd.to_datetime(d))
+if len(dates) < 2:
+    raise ValueError(f"Attendu au moins 2 dates distinctes, trouvé : {dates}")
+date_old, date_new = dates[0], dates[1]
+
+# ----------------------------------------------------------------------------
+# 9. Renommer les colonnes de clusters
+# ----------------------------------------------------------------------------
+df_pivot = df_pivot.rename(columns={
+    date_old: 'cluster_old',
+    date_new: 'cluster_new'
+})
+
+# ----------------------------------------------------------------------------
+# 10. Détection d’anomalies : changement de cluster
+# ----------------------------------------------------------------------------
+df_pivot['anomaly'] = df_pivot['cluster_old'] != df_pivot['cluster_new']
+
+# ----------------------------------------------------------------------------
+# 11. Résultat final
+# ----------------------------------------------------------------------------
+# Remettre 'rf_struct_id' comme colonne
+df_result = df_pivot.reset_index()[['rf_struct_id', 'cluster_old', 'cluster_new', 'anomaly']]
+
+print(df_result.head())
+print(f"\nNombre de rf_struct_id avec anomalie : {df_result['anomaly'].sum()}")
