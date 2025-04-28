@@ -79,3 +79,108 @@ df_result = df_pivot[['rf_struct_id', 'cluster_old', 'cluster_new', 'anomaly']].
 
 print(df_result.head())
 print(f"\nNombre de rf_struct_id anomalies : {df_result['anomaly'].sum()}")
+
+
+# *******************************
+
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+
+# ----------------------------------------------------------------------------
+# 1. Charger vos deux DataFrames existants :
+#    - df_filtre : dataset t0, colonnes ['rf_struct_id','pillars','shock','as_of_date', …]
+#    - dfn1      : dataset t+1, mêmes colonnes
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# 2. Créer une clé unique pour chaque ligne (clé = rf_struct_id + as_of_date)
+# ----------------------------------------------------------------------------
+for df in (df_filtre, dfn1):
+    df['key'] = (
+        df['rf_struct_id'].astype(str)
+        + '_' +
+        df['as_of_date'].astype(str)
+    )
+
+# ----------------------------------------------------------------------------
+# 3. Agréger les shocks par key pour générer les features max, min, median
+# ----------------------------------------------------------------------------
+def make_feats(df):
+    return (
+        df
+        .groupby('key', as_index=False)['shock']
+        .agg(
+            max_shock    = ('shock', 'max'),
+            min_shock    = ('shock', 'min'),
+            median_shock = ('shock', 'median'),
+            rf_struct_id = ('rf_struct_id', 'first'),
+            as_of_date   = ('as_of_date',   'first')
+        )
+    )
+
+df0_feats = make_feats(df_filtre)  # features pour t0
+df1_feats = make_feats(dfn1)       # features pour t+1
+
+# ----------------------------------------------------------------------------
+# 4. Concaténer les deux jeux de features pour le clustering
+# ----------------------------------------------------------------------------
+df_feats_all = pd.concat([df0_feats, df1_feats], ignore_index=True)
+
+# ----------------------------------------------------------------------------
+# 5. Préparer et standardiser la matrice de features
+# ----------------------------------------------------------------------------
+features = ['max_shock', 'min_shock', 'median_shock']
+X = df_feats_all[features].values
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# ----------------------------------------------------------------------------
+# 6. Clustering K-Means sur l’ensemble (t0 + t+1)
+# ----------------------------------------------------------------------------
+k_opt = 3  # ajuster selon votre méthode du coude / silhouette
+kmeans = KMeans(n_clusters=k_opt, random_state=0)
+df_feats_all['cluster'] = kmeans.fit_predict(X_scaled)
+
+# ----------------------------------------------------------------------------
+# 7. Rattacher les clusters à df0_feats (cluster_old) et df1_feats (cluster_new)
+# ----------------------------------------------------------------------------
+df0 = df0_feats[['key']].merge(df_feats_all[['key','cluster']], on='key')
+df0 = df0.rename(columns={'cluster':'cluster_old'})
+
+df1 = df1_feats[['key']].merge(df_feats_all[['key','cluster']], on='key')
+df1 = df1.rename(columns={'cluster':'cluster_new'})
+
+# ----------------------------------------------------------------------------
+# 8. Déterminer le cluster majoritaire par rf_struct_id pour t0 et t+1
+# ----------------------------------------------------------------------------
+rf_old = (
+    df0
+    .merge(df0_feats[['key','rf_struct_id']], on='key')
+    .groupby('rf_struct_id')['cluster_old']
+    .agg(lambda x: x.mode()[0])
+    .reset_index()
+)
+
+rf_new = (
+    df1
+    .merge(df1_feats[['key','rf_struct_id']], on='key')
+    .groupby('rf_struct_id')['cluster_new']
+    .agg(lambda x: x.mode()[0])
+    .reset_index()
+)
+
+# ----------------------------------------------------------------------------
+# 9. Comparer cluster_old vs. cluster_new par rf_struct_id et marquer anomalies
+# ----------------------------------------------------------------------------
+df_compare = pd.merge(rf_old, rf_new, on='rf_struct_id', how='inner')
+df_compare['anomaly'] = df_compare['cluster_old'] != df_compare['cluster_new']
+
+# ----------------------------------------------------------------------------
+# 10. Résultat final
+# ----------------------------------------------------------------------------
+# Colonnes : rf_struct_id, cluster_old, cluster_new, anomaly
+print(df_compare.head())
+print(f"\nNombre de rf_struct_id anomalies : {df_compare['anomaly'].sum()}")
+
