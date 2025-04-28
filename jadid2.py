@@ -351,27 +351,32 @@ df_feats_all['cluster'] = kmeans.fit_predict(X_scaled)
 # ----------------------------------------------------------------------------
 df_pivot = (
     df_feats_all
-    .pivot(index='rf_struct_id', columns='as_of_date', values='cluster')
+    .pivot_table(
+        index='rf_struct_id',          # lignes = rf_struct_id
+        columns='as_of_date',          # colonnes = dates
+        values='cluster',              # valeur = label de cluster
+        aggfunc='first'                # en cas de doublon, on garde le premier
+    )
     .reset_index()
 )
 
 # ----------------------------------------------------------------------------
 # 8. Renommer les colonnes pour plus de clarté
 # ----------------------------------------------------------------------------
+
+dates = sorted(
+    [c for c in df_pivot.columns if c != 'rf_struct_id'],
+    key=lambda d: pd.to_datetime(d)
+)
+date_old, date_new = dates[0], dates[1]
+
 df_pivot = df_pivot.rename(columns={
     date_old: 'cluster_old',
     date_new: 'cluster_new'
 })
 
-# ----------------------------------------------------------------------------
-# 9. Détection d’anomalies : changement de cluster par rf_struct_id
-# ----------------------------------------------------------------------------
 df_pivot['anomaly'] = df_pivot['cluster_old'] != df_pivot['cluster_new']
 
-# ----------------------------------------------------------------------------
-# 10. DataFrame résultat
-#     Colonnes : rf_struct_id, cluster_old, cluster_new, anomaly
-# ----------------------------------------------------------------------------
 df_result = df_pivot[['rf_struct_id', 'cluster_old', 'cluster_new', 'anomaly']].copy()
 
 print(df_result.head())
