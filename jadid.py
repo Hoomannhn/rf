@@ -267,3 +267,110 @@ df_result = df_pivot.reset_index()[['rf_struct_id', 'cluster_old', 'cluster_new'
 
 print(df_result.head())
 print(f"\nNombre de rf_struct_id avec anomalie : {df_result['anomaly'].sum()}")
+
+
+# //////////////////////////////////////////////////////////////////////////////////
+
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+
+# ----------------------------------------------------------------------------
+# 1. Charger vos deux jeux de données existants (DataFrames pré-chargés) :
+#    - df_filtre : dataset t0, colonnes ['rf_struct_id','pillars','shock','as_of_date',...]
+#    - dfn1      : dataset t+1, mêmes colonnes
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# 2. Créer une clé unique « key » pour chaque observation :
+#    (on conserve rf_struct_id et as_of_date pour la clé)
+# ----------------------------------------------------------------------------
+for df in (df_filtre, dfn1):
+    df['key'] = (
+        df['rf_struct_id'].astype(str)
+        + '_' +
+        df['as_of_date'].astype(str)
+    )
+
+# ----------------------------------------------------------------------------
+# 3. Concaténer les deux jeux en un seul DataFrame
+# ----------------------------------------------------------------------------
+df_all = pd.concat([df_filtre, dfn1], ignore_index=True)
+
+# ----------------------------------------------------------------------------
+# 4. Agréger les shocks par clé pour créer les features
+# ----------------------------------------------------------------------------
+df_feats = (
+    df_all
+    .groupby('key')['shock']
+    .agg(
+        max_shock='max',
+        min_shock='min',
+        median_shock='median'
+    )
+    .reset_index()
+)
+
+# ----------------------------------------------------------------------------
+# 5. Extraire rf_struct_id et as_of_date depuis la clé
+# ----------------------------------------------------------------------------
+# La clé avait la forme "<rf_struct_id>_<as_of_date>"
+tmp = df_feats['key'].str.rsplit('_', n=1, expand=True)
+df_feats['rf_struct_id'] = tmp[0]
+df_feats['as_of_date']  = tmp[1]
+
+# ----------------------------------------------------------------------------
+# 6. Préparer la matrice de features pour le clustering
+# ----------------------------------------------------------------------------
+features = ['max_shock','min_shock','median_shock']
+X = df_feats[features].values
+
+# ----------------------------------------------------------------------------
+# 7. Standardiser
+# ----------------------------------------------------------------------------
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# ----------------------------------------------------------------------------
+# 8. Clustering K-Means sur l’ensemble des observations (t0 + t+1)
+# ----------------------------------------------------------------------------
+k_opt = 3  # ajustez selon méthode du coude / silhouette
+kmeans = KMeans(n_clusters=k_opt, random_state=0)
+df_feats['cluster'] = kmeans.fit_predict(X_scaled)
+
+# ----------------------------------------------------------------------------
+# 9. Réassembler cluster_old et cluster_new par rf_struct_id
+# ----------------------------------------------------------------------------
+# Pivot pour obtenir, pour chaque rf_struct_id, les clusters à chaque date
+df_pivot = (
+    df_feats
+    .pivot(index='rf_struct_id', columns='as_of_date', values='cluster')
+    .reset_index()
+)
+
+# Identifier et trier les deux dates
+dates = sorted([c for c in df_pivot.columns if c != 'rf_struct_id'],
+               key=lambda d: pd.to_datetime(d))
+if len(dates) < 2:
+    raise ValueError(f"2 dates attendues, trouvé : {dates}")
+date_old, date_new = dates[0], dates[1]
+
+# Renommer pour plus de clarté
+df_pivot = df_pivot.rename(columns={
+    date_old: 'cluster_old',
+    date_new: 'cluster_new'
+})
+
+# ----------------------------------------------------------------------------
+# 10. Détection d’anomalies : changement de cluster pour chaque rf_struct_id
+# ----------------------------------------------------------------------------
+df_pivot['anomaly'] = df_pivot['cluster_old'] != df_pivot['cluster_new']
+
+# ----------------------------------------------------------------------------
+# 11. Résultat final
+# ----------------------------------------------------------------------------
+# Chaque ligne : rf_struct_id, cluster_old, cluster_new, anomaly (True/False)
+df_result = df_pivot[['rf_struct_id','cluster_old','cluster_new','anomaly']].copy()
+print(df_result.head())
+print(f"\nTotal anomalies : {df_result['anomaly'].sum()}")
